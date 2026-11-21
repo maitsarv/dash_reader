@@ -15,6 +15,62 @@ pub trait ColorValue {
     fn get_pixel_rgb(&self, x: u32, y: u32) -> (u8, u8, u8);
 }
 
+pub struct RotatedView<'a, T: PixelValue> {
+    pub img: &'a T,
+    pub src_w: u32,
+    pub src_h: u32,
+    pub clockwise: bool,
+}
+
+impl<'a, T: PixelValue> PixelValue for RotatedView<'a, T> {
+    fn get_row_values(&self, y: u32, row: &mut [u8]) {
+        let sh = self.src_h as usize;
+        if self.clockwise {
+            let mut col = vec![0u8; sh];
+            self.img.get_col_values(y, &mut col);
+            for x in 0..sh {
+                row[x] = col[sh - 1 - x];
+            }
+        } else {
+            let mut col = vec![0u8; sh];
+            self.img.get_col_values(self.src_w - 1 - y, &mut col);
+            row[..sh].copy_from_slice(&col);
+        }
+    }
+
+    fn get_col_values(&self, x: u32, col: &mut [u8]) {
+        let sw = self.src_w as usize;
+        if self.clockwise {
+            let mut r = vec![0u8; sw];
+            self.img.get_row_values(self.src_h - 1 - x, &mut r);
+            col[..sw].copy_from_slice(&r);
+        } else {
+            let mut r = vec![0u8; sw];
+            self.img.get_row_values(x, &mut r);
+            for y in 0..sw {
+                col[y] = r[sw - 1 - y];
+            }
+        }
+    }
+}
+
+pub struct RotatedColorView<'a, T: ColorValue> {
+    pub img: &'a T,
+    pub src_w: u32,
+    pub src_h: u32,
+    pub clockwise: bool,
+}
+
+impl<'a, T: ColorValue> ColorValue for RotatedColorView<'a, T> {
+    fn get_pixel_rgb(&self, x: u32, y: u32) -> (u8, u8, u8) {
+        if self.clockwise {
+            self.img.get_pixel_rgb(y, self.src_h - 1 - x)
+        } else {
+            self.img.get_pixel_rgb(self.src_w - 1 - y, x)
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct OdometerReading {
     pub digits: Vec<u8>,
@@ -22,6 +78,7 @@ pub struct OdometerReading {
     pub red_tenths: bool,
     pub bbox: (u32, u32, u32, u32),
     pub confidence: f32,
+    pub rotation_deg: u16,
 }
 
 impl std::fmt::Display for OdometerReading {
@@ -34,8 +91,50 @@ impl std::fmt::Display for OdometerReading {
             }
             s.push((b'0' + d) as char);
         }
-        write!(f, "{} km (confidence {:.0}%)", s, self.confidence * 100.0)
+        if self.rotation_deg != 0 {
+            write!(
+                f,
+                "{} km (confidence {:.0}%, image rotated {} deg)",
+                s,
+                self.confidence * 100.0,
+                self.rotation_deg
+            )
+        } else {
+            write!(f, "{} km (confidence {:.0}%)", s, self.confidence * 100.0)
+        }
     }
+}
+
+pub fn read_odometer_any<T: PixelValue, C: ColorValue>(
+    img: &T,
+    color: Option<&C>,
+    dim: (u32, u32),
+) -> Option<OdometerReading> {
+    if let Some(mut r) = read_odometer(img, color.map(|c| c as &dyn ColorValue), dim) {
+        r.rotation_deg = 0;
+        return Some(r);
+    }
+    for &cw in &[true, false] {
+        let view = RotatedView {
+            img,
+            src_w: dim.0,
+            src_h: dim.1,
+            clockwise: cw,
+        };
+        let vdim = (dim.1, dim.0);
+        let cview = color.map(|c| RotatedColorView {
+            img: c,
+            src_w: dim.0,
+            src_h: dim.1,
+            clockwise: cw,
+        });
+        let cdyn: Option<&dyn ColorValue> = cview.as_ref().map(|v| v as &dyn ColorValue);
+        if let Some(mut r) = read_odometer(&view, cdyn, vdim) {
+            r.rotation_deg = if cw { 90 } else { 270 };
+            return Some(r);
+        }
+    }
+    None
 }
 
 pub fn read_odometer(
@@ -72,6 +171,7 @@ pub fn read_odometer(
         red_tenths,
         bbox: (x0 as u32, y0, x1 as u32, y1),
         confidence,
+        rotation_deg: 0,
     })
 }
 

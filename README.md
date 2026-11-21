@@ -8,6 +8,7 @@ Personal project for learning Rust language, inspired by [rust_barcode_reader](h
 * The last digit is treated as tenths of a kilometre; on mechanical odometers that digit is usually red, which is detected from the RGB image.
 * Multi-row voting plus template-match margin reject ambiguous cells (similar role to the barcode checksum).
 * Does not go over every pixel, the row step is calculated based on the image height.
+* If no odometer band is found by scanning rows, the image is retried rotated 90 deg clockwise and counterclockwise (equivalent to scanning columns), so sideways photos work too.
 
 # Usage
 ```

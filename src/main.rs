@@ -27,7 +27,7 @@ fn read_image(filename: &str) {
     let rgb = img.to_rgb8();
     let luma = img.to_luma8();
     let dim = (luma.width(), luma.height());
-    match odometer_detector::read_odometer(&luma, Some(&rgb), dim) {
+    match odometer_detector::read_odometer_any(&luma, Some(&rgb), dim) {
         Some(reading) => println!("{}", reading),
         None => eprintln!("No odometer reading found in {}", filename),
     }
